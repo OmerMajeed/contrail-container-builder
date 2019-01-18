@@ -31,6 +31,7 @@ if [ -n "$opts" ]; then
   echo "INFO: Options: $opts"
 fi
 
+echo "--- Path : $path"
 docker_ver=$(docker -v | awk -F' ' '{print $3}' | sed 's/,//g')
 echo "INFO: Docker version: $docker_ver"
 
@@ -73,6 +74,15 @@ function process_container() {
   build_arg_opts+=" --build-arg CONTAINER_NAME=${container_name}"
 
   local logfile='build-'$container_name'.log'
+  echo "#######################################################"
+  echo "contrail registry : ${CONTRAIL_REGISTRY}"
+  echo "contrail name : ${container_name}"
+  echo "tag : ${tag}"
+  echo "build args : ${build_arg_opts}"
+  echo "docker file : $docker_file"
+  echo "opts : ${opts}"
+  echo "dir : $dir"
+  echo "-------------------------------------------------------"
   docker build -t ${CONTRAIL_REGISTRY}'/'${container_name}:${tag} \
     ${build_arg_opts} -f $docker_file ${opts} $dir |& tee $logfile
   if [ ${PIPESTATUS[0]} -eq 0 ]; then
@@ -90,9 +100,12 @@ function process_dir() {
   local dir=${1%/}
   local docker_file="$dir/Dockerfile"
   if [[ -f "$docker_file" ]] ; then
+    echo "~~~dir : $dir"
+    echo "docker_file : $docker_file"
     process_container "$dir" "$docker_file"
     return
   fi
+  echo "okay, strange : $dir"
   for d in $(ls -d $dir/*/ 2>/dev/null); do
     if [[ $d != "./" && $d == */general-base* ]]; then
       process_dir $d
@@ -144,6 +157,10 @@ function update_repos() {
     templ=$(cat $rfile)
     content=$(eval "echo \"$templ\"")
     dfile=$(basename $rfile | sed 's/.template//')
+    echo "repo_ext : $repo_ext"
+    echo "templ : $templ"
+    echo "content : $content"
+    echo "dfile : $dfile"
     update_file "general-base/$dfile" "$content"
     # this is special case - image derived directly from ubuntu image
     update_file "vrouter/kernel-build-init/$dfile" "$content"

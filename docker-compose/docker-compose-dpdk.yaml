@@ -329,8 +329,8 @@ services:
       restart: on-failure
     depends_on:
       - vrouter-init-kernel
-  vrouter-agent:
-    image: "${CONTRAIL_REGISTRY}/contrail-vrouter-agent:${CONTRAIL_CONTAINER_TAG}"
+  vpp-agent:
+    image: "${CONTRAIL_REGISTRY}/contrail-vpp-agent:${CONTRAIL_CONTAINER_TAG}"
     env_file: ${ENV_FILE}
     network_mode: host
     privileged: true

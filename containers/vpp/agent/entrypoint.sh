@@ -5,30 +5,30 @@ source /agent-functions.sh
 
 echo "INFO: agent started in $AGENT_MODE mode"
 
-function trap_vrouter_agent_quit() {
-    term_process $vrouter_agent_process
+function trap_vpp_agent_quit() {
+    term_process $vpp_agent_process
     remove_vhost0
     cleanup_vrouter_agent_files
 }
 
-function trap_vrouter_agent_term() {
-    term_process $vrouter_agent_process
+function trap_vpp_agent_term() {
+    term_process $vpp_agent_process
 }
 
-function trap_vrouter_agent_hub() {
-    send_sighup_child_process $vrouter_agent_process
+function trap_vpp_agent_hub() {
+    send_sighup_child_process $vpp_agent_process
 }
 
 # Clean up files and vhost0, when SIGQUIT signal by clean-up.sh
-trap 'trap_vrouter_agent_quit' SIGQUIT
+trap 'trap_vpp_agent_quit' SIGQUIT
 
 # Terminate process only.
 # When a container/pod restarts it sends TERM and KILL signal.
 # Every time container restarts we dont want to reset data plane
-trap 'trap_vrouter_agent_term' SIGTERM SIGINT
+trap 'trap_vpp_agent_term' SIGTERM SIGINT
 
 # Send SIGHUP signal to child process
-trap 'trap_vrouter_agent_hub' SIGHUP
+trap 'trap_vpp_agent_hub' SIGHUP
 
 pre_start_init
 
@@ -65,7 +65,7 @@ if is_encryption_supported ; then
         exit 1
     fi
 else
-    echo "INFO: Kernel version does not support the driver required for vrouter to vrouter encryption"
+    echo "INFO: Kernel version does not support the driver required for encryption"
 fi
 
 init_sriov
@@ -81,7 +81,7 @@ else
     pci_address=`cat $binding_data_dir/${phys_int}_pci`
 fi
 
-VROUTER_GATEWAY=`awk -F'=' '$1 == "GATEWAY" {print $2}' /etc/sysconfig/network-scripts/ifcfg-vhost0`
+VROUTER_GATEWAY=${VROUTER_GATEWAY:-`get_default_gateway_for_nic 'vhost0'`}
 vrouter_cidr=$(get_cidr_for_nic 'vhost0')
 echo "INFO: Physical interface: $phys_int, mac=$phys_int_mac, pci=$pci_address"
 echo "INFO: vhost0 cidr $vrouter_cidr, gateway $VROUTER_GATEWAY"
@@ -104,10 +104,8 @@ if [[ -z "$vrouter_cidr" ]] ; then
     exit 1
 fi
 vrouter_ip=${vrouter_cidr%/*}
-if [[ -z "$VROUTER_GATEWAY" ]] ; then
-    echo "ERROR: VROUTER_GATEWAY is empty or there is no default route for vhost0"
-    exit 1
-fi
+
+VPP_GATEWAY=`awk -F'=' '$1 == "GATEWAY" {print $2}' /etc/sysconfig/network-scripts/ifcfg-$phys_int`
 
 agent_mode_options="physical_interface_mac = $phys_int_mac"
 if is_dpdk ; then
@@ -216,7 +214,7 @@ crypt_interface=$VROUTER_CRYPT_INTERFACE
 EOM
 fi
 
-echo "INFO: Preparing /etc/contrail/contrail-vrouter-agent.conf"
+echo "INFO: Preparing /etc/contrail/contrail-vpp-agent.conf"
 cat << EOM > /etc/contrail/contrail-vrouter-agent.conf
 [CONTROL-NODE]
 servers=${XMPP_SERVERS:-`get_server_list CONTROL ":$XMPP_SERVER_PORT "`}
@@ -239,7 +237,7 @@ $tsn_server_list
 $sandesh_client_config
 
 [NETWORKS]
-control_network_ip=$(get_ip_for_vrouter_from_control)
+control_network_ip=$VPP_CONTROL_ADDR
 
 [DNS]
 servers=${DNS_SERVERS:-`get_server_list DNS ":$DNS_SERVER_PORT "`}
@@ -250,10 +248,10 @@ $metadata_ssl_conf
 
 [VIRTUAL-HOST-INTERFACE]
 name=vhost0
-ip=$vrouter_cidr
+ip=$VPP_CONTROL_ADDR/24
 physical_interface=$phys_int
-gateway=$VROUTER_GATEWAY
-compute_node_address=$vrouter_ip
+gateway=$VPP_GATEWAY
+compute_node_address=$VPP_CONTROL_ADDR
 
 [SERVICE-INSTANCE]
 netns_command=/usr/bin/opencontrail-vrouter-netns
@@ -284,7 +282,7 @@ add_ini_params_from_env VROUTER_AGENT /etc/contrail/contrail-vrouter-agent.conf
 
 if [[ -n "${PRIORITY_ID}" ]] || [[ -n "${QOS_QUEUE_ID}" ]]; then
     if is_dpdk ; then
-       echo "INFO: Qos provisioning not supported for dpdk vrouter. Skipping."
+       echo "INFO: Qos provisioning not supported for dpdk vpp. Skipping."
     else
         interface_list="${phys_int}"
         if is_bonding ${phys_int} ; then
@@ -295,19 +293,19 @@ if [[ -n "${PRIORITY_ID}" ]] || [[ -n "${QOS_QUEUE_ID}" ]]; then
     fi
 fi
 
-echo "INFO: /etc/contrail/contrail-vrouter-agent.conf"
+echo "INFO: /etc/contrail/contrail-vpp-agent.conf"
 cat /etc/contrail/contrail-vrouter-agent.conf
 
 set_vnc_api_lib_ini
 create_lbaas_auth_conf
 
-# spin up vrouter-agent as a child process
+# spin up vpp-agent as a child process
 $@ &
-vrouter_agent_process=$!
+vpp_agent_process=$!
 
 # This is to ensure decrypt interface is
-# plumbed on vrouter for processing.
-# it will be interim only till vrouter
+# plumbed on vpp for processing.
+# it will be interim only till vpp
 # agent natively have the support for
 # decrypt interface in 5.0.1
 if is_encryption_supported ; then
@@ -316,8 +314,8 @@ if is_encryption_supported ; then
         exit 1
     fi
 else
-    echo "INFO: Kernel version does not support vrouter to vrouter encryption - Not adding $VROUTER_DECRYPT_INTERFACE to vrouter"
+    echo "INFO: Kernel version does not support encryption - Not adding $VROUTER_DECRYPT_INTERFACE"
 fi
 
-# Wait for vrouter-agent process to complete
-wait $vrouter_agent_process
+# Wait for vpp-agent process to complete
+wait $vpp_agent_process

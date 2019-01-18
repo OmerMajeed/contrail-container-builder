@@ -83,10 +83,13 @@ if [[ -f "$binding_data_dir/${phys_int}_bond" ]] ; then
     echo "INFO: bond_data: $bond_data"
 fi
 
-chmod 777 /var/run/vrouter
+addrs=$(get_addrs_for_nic $phys_int)
 
 # base command
-cmd="$@ --no-daemon $DPDK_COMMAND_ADDITIONAL_ARGS"
+cmd="/usr/bin/contrail-vrouter-dpdk --no-daemon $DPDK_COMMAND_ADDITIONAL_ARGS"
+vpp_cmd="$@ -c /etc/vpp/startup.conf"
+
+chmod 777 /var/run/vrouter
 
 # update command with taskset options (core mask)
 # TODO: consider to avoid taskset here and leave to manage by Docker
@@ -138,9 +141,36 @@ if [ -n "${DPDK_UIO_DRIVER}" ]; then
     fi
 fi
 
-echo "INFO: start '$cmd'"
 $cmd &
+temp_process=$!
+
+sleep 10
+term_process $temp_process
+sleep 3
+
+echo "INFO: start '$vpp_cmd'"
+/bin/rm -f /dev/shm/db /dev/shm/global_vm /dev/shm/vpe-api
+$vpp_cmd &
 dpdk_agent_process=$!
+
+
+ip tuntap add name vpp0 mode tap
+ifconfig vpp0 $addrs/24
+
+loop_mac=$(echo de:ad:00:$[RANDOM%10]$[RANDOM%10]:$[RANDOM%10]$[RANDOM%10]:$[RANDOM%10]$[RANDOM%10])
+sleep 4
+
+vppctl tap connect vpp0
+vppctl set interface state tapcli-0 up
+vppctl set interface l2 bridge tapcli-0 9000
+vppctl set interface state GigabitEthernet2/0/1 up
+vppctl set interface l2 bridge GigabitEthernet2/0/1 9000
+vppctl create loopback interface mac $loop_mac instance 9000
+vppctl set interface state loop9000 up
+vppctl set interface l2 bridge loop9000 9000 bvi
+vppctl set interface ip address loop9000 $VPP_CONTROL_ADDR/24
+vppctl set bridge-domain arp term 9000
+vppctl set bridge-domain arp entry 9000 $VPP_CONTROL_ADDR $loop_mac
 
 export CONTRAIL_DPDK_CONTAINER_CONTEXT='true'
 for i in {1..3} ; do

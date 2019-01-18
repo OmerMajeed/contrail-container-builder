@@ -3,6 +3,8 @@
 set -ex
 mkdir -p /opt/plugin/bin
 cp /opt/contrail/bin/vrouter-port-control /opt/plugin/bin/
+cp /opt/contrail/bin/vrouter-port-control /usr/bin/
+
 
 # linux distro here always centos for now
 src_path='/usr/lib/python2.7/site-packages'

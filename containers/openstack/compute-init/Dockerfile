@@ -9,7 +9,8 @@ RUN yum install -y contrail-vrouter-agent contrail-nova-vif && \
     cp /usr/bin/vrouter-port-control /opt/contrail/bin && \
     yum remove -y contrail-vrouter-agent && \
     yum autoremove -y && yum clean all -y && \
-    rm -rf /var/cache/yum
+    rm -rf /var/cache/yum && \
+    cp /opt/contrail/bin/vrouter-port-control /usr/bin/
 
 COPY *.sh /
 
