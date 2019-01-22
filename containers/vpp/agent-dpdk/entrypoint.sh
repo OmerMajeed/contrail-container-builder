@@ -71,68 +71,15 @@ assert_file "$binding_data_dir/${phys_int}_mac"
 phys_int_mac=`cat "$binding_data_dir/${phys_int}_mac"`
 assert_file "$binding_data_dir/${phys_int}_pci"
 pci_address=`cat "$binding_data_dir/${phys_int}_pci"`
+echo "this file is required by nova_compute" > $binding_data_dir/dpdk_netlink
 echo "INFO: Physical interface: $phys_int, mac=$phys_int_mac, pci=$pci_address"
-vlan_data=''
-if [[ -f "$binding_data_dir/${phys_int}_vlan" ]] ; then
-    vlan_data=$(cat "$binding_data_dir/${phys_int}_vlan")
-    echo "INFO: vlan_data: $vlan_data"
-fi
-bond_data=''
-if [[ -f "$binding_data_dir/${phys_int}_bond" ]] ; then
-    bond_data=$(cat "$binding_data_dir/${phys_int}_bond")
-    echo "INFO: bond_data: $bond_data"
-fi
 
 addrs=$(get_addrs_for_nic $phys_int)
 
 # base command
-cmd="/usr/bin/contrail-vrouter-dpdk --no-daemon $DPDK_COMMAND_ADDITIONAL_ARGS"
 vpp_cmd="$@ -c /etc/vpp/startup.conf"
 
 chmod 777 /var/run/vrouter
-
-# update command with taskset options (core mask)
-# TODO: consider to avoid taskset here and leave to manage by Docker
-if [[ -n "$CPU_CORE_MASK" ]] ; then
-    taskset_param="$CPU_CORE_MASK"
-    if [[ "${CPU_CORE_MASK}" =~ [,-] ]]; then
-        taskset_param="-c $CPU_CORE_MASK"
-    fi
-    cmd="/bin/taskset $taskset_param $cmd"
-fi
-
-# update command with socket mem option
-dpdk_socket_mem=''
-for _ in /sys/devices/system/node/node*/hugepages ; do
-    if [[ -z "${dpdk_socket_mem}" ]] ; then
-        dpdk_socket_mem="${DPDK_MEM_PER_SOCKET}"
-    else
-        dpdk_socket_mem+=",${DPDK_MEM_PER_SOCKET}"
-    fi
-done
-[ -z "${dpdk_socket_mem}" ] && dpdk_socket_mem="${DPDK_MEM_PER_SOCKET}"
-cmd+=" --socket-mem $dpdk_socket_mem"
-
-# update command with vlan & bond options
-if [[ -n "$vlan_data" ]] ; then
-    vlan_id=$(echo "$vlan_data" | cut -d ' ' -f 1)
-    vlan_parent=$(echo "$vlan_data" | cut -d ' ' -f 2)
-    cmd+=" --vlan_tci ${vlan_id} --vlan_fwd_intf_name ${vlan_parent}"
-fi
-if [[ -n "$bond_data" ]] ; then
-    mode=$(echo "$bond_data" | cut -d ' ' -f 1)
-    policy=$(echo "$bond_data" | cut -d ' ' -f 2)
-    numa=$(echo "$bond_data" | cut -d ' ' -f 5)
-    # use list of slaves pci for next check of bind
-    pci_address=$(echo "$bond_data" | cut -d ' ' -f 4)
-    cmd+=" --vdev eth_bond_${phys_int},mode=${mode},xmit_policy=${policy},socket_id=${numa},mac=$phys_int_mac"
-    for s in ${pci_address//,/ } ; do
-        cmd+=",slave=${s}"
-    done
-    echo "INFO: bonding: removing bond interface from Linux..."
-    ifdown $phys_int
-    ip link del $phys_int
-fi
 
 if [ -n "${DPDK_UIO_DRIVER}" ]; then
     if ! bind_devs_to_driver "$DPDK_UIO_DRIVER" "${pci_address//,/ }" ; then
@@ -140,13 +87,6 @@ if [ -n "${DPDK_UIO_DRIVER}" ]; then
         exit -1
     fi
 fi
-
-$cmd &
-temp_process=$!
-
-sleep 10
-term_process $temp_process
-sleep 3
 
 echo "INFO: start '$vpp_cmd'"
 /bin/rm -f /dev/shm/db /dev/shm/global_vm /dev/shm/vpe-api
