@@ -17,6 +17,14 @@ function trap_dpdk_agent_quit() {
 
 function trap_dpdk_agent_term() {
     term_process $dpdk_agent_process
+    if [ -n "$pci_address" ] ; then
+        restore_phys_int_dpdk "$pci_address"
+    else
+        echo "WARNING: PCIs list is empty, nothing to rebind to initial net driver"
+    fi
+    remove_vhost0
+    remove_vpp0
+    restart_vpp_agent
 }
 
 # Clean up files and vhost0, when SIGQUIT signal by clean-up.sh
@@ -88,17 +96,18 @@ if [ -n "${DPDK_UIO_DRIVER}" ]; then
     fi
 fi
 
+ip tuntap add name vpp0 mode tap
+ifconfig vpp0 $addrs/24
+echo "created vpp0 with IP : $addrs"
+
+loop_mac=$(echo de:ad:00:$[RANDOM%10]$[RANDOM%10]:$[RANDOM%10]$[RANDOM%10]:$[RANDOM%10]$[RANDOM%10])
+
 echo "INFO: start '$vpp_cmd'"
 /bin/rm -f /dev/shm/db /dev/shm/global_vm /dev/shm/vpe-api
 $vpp_cmd &
 dpdk_agent_process=$!
 
-
-ip tuntap add name vpp0 mode tap
-ifconfig vpp0 $addrs/24
-
-loop_mac=$(echo de:ad:00:$[RANDOM%10]$[RANDOM%10]:$[RANDOM%10]$[RANDOM%10]:$[RANDOM%10]$[RANDOM%10])
-sleep 4
+sleep 3
 
 vppctl tap connect vpp0
 vppctl set interface state tapcli-0 up

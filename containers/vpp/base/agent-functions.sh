@@ -564,12 +564,27 @@ function cleanup_contrail_cni_config() {
     rm -f /etc/cni/net.d/10-contrail.conf
 }
 
+# stopping vpp agent will get restart automatically
+function restart_vpp_agent() {
+   echo "INFO: restarting contrail-vpp-agent"
+   agent_process_id=$(ps -ef | awk '$8=="/usr/bin/contrail-vpp-agent" {print $2}')
+   kill -9 $agent_process_id
+}
+
+# remove vpp0 functionality
+function remove_vpp0() {
+    if is_dpdk ; then
+        echo "INFO: removing vpp0"
+        ip tuntap del name vpp0 mode tap
+    fi
+    return
+}
+
 # generic remove vhost functionality
 function remove_vhost0() {
     if is_dpdk ; then
-        # There is nothing to do in agent container for dpdk case
-        # the interface is handled by dpdk container
-        echo "INFO: removing vhost0 is skipped for dpdk"
+        echo "INFO: removing vhost0"
+        ip tuntap del name vhost0 mode tap
         return
     fi
     echo "INFO: removing vhost0"
